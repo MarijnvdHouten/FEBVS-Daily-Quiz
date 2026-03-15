@@ -2,8 +2,8 @@ name: Daily Vascular Surgery Questions
 
 on:
   schedule:
-    # Runs every day at 07:00 Amsterdam time (06:00 UTC)
-    - cron: "0 6 * * *"
+    # Runs every day at 19:00 Amsterdam time (18:00 UTC)
+    - cron: "0 19 * * *"
   workflow_dispatch:  # Also allows manual trigger from GitHub UI
 
 jobs:
