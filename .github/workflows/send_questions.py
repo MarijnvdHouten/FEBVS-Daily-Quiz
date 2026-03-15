@@ -38,9 +38,10 @@ TOPICS = [
 # ── Generate questions via Anthropic API ──────────────────────────────────────
 async def generate_questions(topic: str) -> list[dict]:
     prompt = (
-        f"FEBVS/CASH-3V exam. Generate 5 HARD vascular surgery MCQs on: \"{topic}\". "
+        f"FEBVS/CASH-3V exam. Generate 3 HARD vascular surgery MCQs on: \"{topic}\". "
         "Require detailed specialist knowledge — specific thresholds, trial data, exceptions, "
         "complication management. Plausible distractors. "
+        "Keep each explanation under 40 words. "
         "Respond ONLY with JSON, no markdown:\n"
         "{\"questions\":[{\"question\":\"...\",\"options\":[\"A. ...\",\"B. ...\",\"C. ...\",\"D. ...\",\"E. ...\"],\"correct\":0,\"explanation\":\"...\"}]}"
     )
@@ -54,7 +55,7 @@ async def generate_questions(topic: str) -> list[dict]:
             },
             json={
                 "model": "claude-haiku-4-5-20251001",  # Haiku = much faster + cheaper for daily use
-                "max_tokens": 2000,
+                "max_tokens": 3000,
                 "messages": [{"role": "user", "content": prompt}],
             },
         )
@@ -111,7 +112,7 @@ async def main():
     await send_telegram(
         f"🩺 <b>Daily Vascular Surgery Questions</b>\n\n"
         f"📚 Today's topic: <i>{topic}</i>\n\n"
-        f"5 hard questions — answer each poll below. "
+        f"3 hard questions — answer each poll below. "
         f"Good luck! 💪"
     )
     await asyncio.sleep(1)
