@@ -4,11 +4,11 @@ import json
 import random
 import asyncio
 import httpx
-
+ 
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-
+ 
 TOPICS = [
     "Abdominal aortic aneurysm — EVAR indications, endoleak classification, surveillance",
     "Carotid artery disease — CEA vs CAS, NASCET criteria, perioperative management",
@@ -25,8 +25,8 @@ TOPICS = [
     "Endovascular techniques — wire selection, stent types, complication bailout",
     "Aorto-iliac occlusive disease — TASC classification, bypass, kissing stents",
 ]
-
-
+ 
+ 
 async def generate_questions(topic: str) -> list:
     system = (
         "You are a medical exam question writer. "
@@ -40,7 +40,7 @@ async def generate_questions(topic: str) -> list:
         "Return this exact JSON structure:\n"
         '{"questions":[{"question":"...","options":["A. ...","B. ...","C. ...","D. ...","E. ..."],"correct":0,"explanation":"..."}]}'
     )
-
+ 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             "https://api.anthropic.com/v1/messages",
@@ -58,19 +58,19 @@ async def generate_questions(topic: str) -> list:
         )
         resp.raise_for_status()
         data = resp.json()
-
+ 
         # Print full response for debugging
         print("API response:", json.dumps(data, indent=2))
-
+ 
         raw = "".join(b.get("text", "") for b in data["content"]).strip()
         print(f"Raw text ({len(raw)} chars):\n{raw}")
-
+ 
         # Strip any accidental markdown fences
         raw = raw.replace("```json", "").replace("```", "").strip()
-
+ 
         return json.loads(raw)["questions"]
-
-
+ 
+ 
 async def send_telegram(text: str) -> None:
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     async with httpx.AsyncClient(timeout=30) as client:
@@ -80,15 +80,15 @@ async def send_telegram(text: str) -> None:
             "parse_mode": "HTML",
         })
         resp.raise_for_status()
-
-
+ 
+ 
 async def send_poll(q: dict, num: int) -> None:
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPoll"
     options = [o[3:].strip() if len(o) > 2 and o[1] == "." else o for o in q["options"]]
     options = [o[:100] for o in options]
     explanation = q["explanation"][:200]
     question_text = f"Q{num}: {q['question']}"[:300]
-
+ 
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(url, json={
             "chat_id": TELEGRAM_CHAT_ID,
@@ -107,30 +107,31 @@ async def send_poll(q: dict, num: int) -> None:
                 f"<b>Q{num}:</b> {q['question']}\n\n{opts}\n\n"
                 f"<tg-spoiler>✅ {q['options'][q['correct']]}\n{q['explanation']}</tg-spoiler>"
             )
-
-
+ 
+ 
 async def main():
     topic = random.choice(TOPICS)
     print(f"Topic: {topic}")
-
+ 
     questions = await generate_questions(topic)
     print(f"Got {len(questions)} questions")
-
+ 
     await send_telegram(
         f"🩺 <b>Daily Vascular Surgery Questions</b>\n\n"
         f"📚 <i>{topic}</i>\n\n"
         f"3 hard questions below 👇"
     )
     await asyncio.sleep(1)
-
+ 
     for i, q in enumerate(questions[:3], 1):
         print(f"Sending Q{i}...")
         await send_poll(q, i)
         await asyncio.sleep(1.5)
-
+ 
     await send_telegram("✅ <b>Done for today!</b> Keep it up 💪")
     print("All done.")
-
-
+ 
+ 
 if __name__ == "__main__":
     asyncio.run(main())
+ 
