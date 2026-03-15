@@ -32,7 +32,7 @@ async def generate_questions(topic: str) -> list:
         "You are a medical exam question writer. "
         "Always respond with ONLY a JSON object — no prose, no markdown, no backticks. "
         "Keep every answer option under 12 words. "
-        "Keep every explanation under 40 words."
+        "Keep every explanation under 80 words."
     )
     user = (
         f"Write 3 hard MCQs about: {topic}\n"
@@ -52,7 +52,7 @@ async def generate_questions(topic: str) -> list:
             },
             json={
                 "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 3000,
+                "max_tokens": 8000,
                 "system": system,
                 "messages": [{"role": "user", "content": user}],
             },
@@ -84,7 +84,7 @@ async def send_poll(q: dict, num: int) -> None:
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPoll"
     options = [o[3:].strip() if len(o) > 2 and o[1] == "." else o for o in q["options"]]
     options = [o[:100] for o in options]
-    explanation = q["explanation"][:200]
+    explanation = q["explanation"][:400]
     question_text = f"Q{num}: {q['question']}"[:300]
 
     async with httpx.AsyncClient(timeout=30) as client:
