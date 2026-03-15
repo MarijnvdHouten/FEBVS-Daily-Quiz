@@ -31,12 +31,13 @@ async def generate_questions(topic: str) -> list:
     system = (
         "You are a medical exam question writer. "
         "Always respond with ONLY a JSON object — no prose, no markdown, no backticks. "
-        "Keep every question under 25 words. "
-        "Keep every answer option under 10 words. "
-        "Keep every explanation under 25 words."
+        "Keep every answer option under 12 words. "
+        "Keep every explanation under 40 words."
     )
     user = (
         f"Write 3 hard MCQs about: {topic}\n"
+        "Questions should be detailed clinical scenarios (1-3 sentences) requiring specialist knowledge. "
+        "Use specific numbers, trial data, or nuanced decision-making. "
         "Return this exact JSON structure:\n"
         '{"questions":[{"question":"...","options":["A. ...","B. ...","C. ...","D. ...","E. ..."],"correct":0,"explanation":"..."}]}'
     )
@@ -59,15 +60,12 @@ async def generate_questions(topic: str) -> list:
         resp.raise_for_status()
         data = resp.json()
 
-        # Print full response for debugging
         print("API response:", json.dumps(data, indent=2))
 
         raw = "".join(b.get("text", "") for b in data["content"]).strip()
         print(f"Raw text ({len(raw)} chars):\n{raw}")
 
-        # Strip any accidental markdown fences
         raw = raw.replace("```json", "").replace("```", "").strip()
-
         return json.loads(raw)["questions"]
 
 
@@ -98,7 +96,7 @@ async def send_poll(q: dict, num: int) -> None:
             "correct_option_id": q["correct"],
             "explanation": explanation,
             "is_anonymous": False,
-            "open_period": 86400,
+            # no open_period = poll stays open indefinitely
         })
         if resp.status_code != 200:
             print(f"Poll failed: {resp.text} — sending as text instead")
