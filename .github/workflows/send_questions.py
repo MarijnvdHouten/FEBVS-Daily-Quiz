@@ -38,11 +38,9 @@ TOPICS = [
 # ── Generate questions via Anthropic API ──────────────────────────────────────
 async def generate_questions(topic: str) -> list[dict]:
     prompt = (
-        f"FEBVS/CASH-3V exam. Generate 3 HARD vascular surgery MCQs on: \"{topic}\". "
-        "Require detailed specialist knowledge — specific thresholds, trial data, exceptions, "
-        "complication management. Plausible distractors. "
-        "Keep each explanation under 40 words. "
-        "Respond ONLY with JSON, no markdown:\n"
+        f"Generate 3 hard vascular surgery MCQs on: \"{topic}\". "
+        "Rules: question max 20 words, each option max 8 words, explanation max 20 words. "
+        "Respond ONLY with JSON, no markdown, no preamble:\n"
         "{\"questions\":[{\"question\":\"...\",\"options\":[\"A. ...\",\"B. ...\",\"C. ...\",\"D. ...\",\"E. ...\"],\"correct\":0,\"explanation\":\"...\"}]}"
     )
     async with httpx.AsyncClient(timeout=60) as client:
@@ -54,11 +52,18 @@ async def generate_questions(topic: str) -> list[dict]:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-haiku-4-5-20251001",  # Haiku = much faster + cheaper for daily use
+                "model": "claude-haiku-4-5-20251001",
                 "max_tokens": 3000,
+                "system": "You write extremely concise medical exam questions. Every question under 20 words. Every answer option under 8 words. Every explanation under 20 words. Always respond with valid complete JSON only.",
                 "messages": [{"role": "user", "content": prompt}],
             },
         )
+        resp.raise_for_status()
+        data = resp.json()
+        raw = "".join(b.get("text", "") for b in data["content"]).strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        print(f"Raw response ({len(raw)} chars):\n{raw}\n")  # debug
+        return json.loads(raw)["questions"]
         resp.raise_for_status()
         data = resp.json()
         raw = "".join(b.get("text", "") for b in data["content"]).strip()
