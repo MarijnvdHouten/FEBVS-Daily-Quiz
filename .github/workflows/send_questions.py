@@ -1,22 +1,14 @@
 #!/usr/bin/env python3
-"""
-FEBVS / CASH-3V Daily Question Bot
-Generates 5 hard vascular surgery questions and sends them via Telegram.
-Each question gets its own message with inline answer buttons.
-"""
-
 import os
 import json
 import random
 import asyncio
 import httpx
 
-# ── Config (set these as environment variables / GitHub Secrets) ──────────────
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-# ── Topic pool (alternates between FEBVS and CASH-3V style) ──────────────────
 TOPICS = [
     "Abdominal aortic aneurysm — EVAR indications, endoleak classification, surveillance",
     "Carotid artery disease — CEA vs CAS, NASCET criteria, perioperative management",
@@ -26,23 +18,29 @@ TOPICS = [
     "Diabetic foot — WIfI scoring, revascularisation, multidisciplinary management",
     "Renal artery disease — FMD vs atherosclerotic, renovascular hypertension, treatment",
     "Mesenteric ischaemia — acute vs chronic, NOMI, endovascular vs open",
-    "Vascular trauma — damage control, REBOA, iatrogenic injuries, TEVAR for blunt aortic injury",
-    "Coagulation and anticoagulation — HIT, DOAC reversal, perioperative bridging",
+    "Vascular trauma — damage control, REBOA, iatrogenic injuries, TEVAR",
+    "Coagulation — HIT, DOAC reversal, perioperative anticoagulation",
     "Thoracic aorta — type B dissection, TEVAR indications, spinal cord protection",
     "Vascular access — AV fistula maturation, steal syndrome, DRIL procedure",
-    "Rare vascular conditions — FMD, Takayasu, popliteal entrapment, cystic adventitial disease",
-    "Endovascular techniques — wire/catheter selection, stent types, complication bailout",
-    "Aorto-iliac occlusive disease — TASC classification, aorto-bifemoral bypass, kissing stents",
+    "Endovascular techniques — wire selection, stent types, complication bailout",
+    "Aorto-iliac occlusive disease — TASC classification, bypass, kissing stents",
 ]
 
-# ── Generate questions via Anthropic API ──────────────────────────────────────
-async def generate_questions(topic: str) -> list[dict]:
-    prompt = (
-        f"Generate 3 hard vascular surgery MCQs on: \"{topic}\". "
-        "Rules: question max 20 words, each option max 8 words, explanation max 20 words. "
-        "Respond ONLY with JSON, no markdown, no preamble:\n"
-        "{\"questions\":[{\"question\":\"...\",\"options\":[\"A. ...\",\"B. ...\",\"C. ...\",\"D. ...\",\"E. ...\"],\"correct\":0,\"explanation\":\"...\"}]}"
+
+async def generate_questions(topic: str) -> list:
+    system = (
+        "You are a medical exam question writer. "
+        "Always respond with ONLY a JSON object — no prose, no markdown, no backticks. "
+        "Keep every question under 25 words. "
+        "Keep every answer option under 10 words. "
+        "Keep every explanation under 25 words."
     )
+    user = (
+        f"Write 3 hard MCQs about: {topic}\n"
+        "Return this exact JSON structure:\n"
+        '{"questions":[{"question":"...","options":["A. ...","B. ...","C. ...","D. ...","E. ..."],"correct":0,"explanation":"..."}]}'
+    )
+
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             "https://api.anthropic.com/v1/messages",
@@ -54,101 +52,84 @@ async def generate_questions(topic: str) -> list[dict]:
             json={
                 "model": "claude-haiku-4-5-20251001",
                 "max_tokens": 3000,
-                "system": "You write extremely concise medical exam questions. Every question under 20 words. Every answer option under 8 words. Every explanation under 20 words. Always respond with valid complete JSON only.",
-                "messages": [{"role": "user", "content": prompt}],
+                "system": system,
+                "messages": [{"role": "user", "content": user}],
             },
         )
         resp.raise_for_status()
         data = resp.json()
+
+        # Print full response for debugging
+        print("API response:", json.dumps(data, indent=2))
+
         raw = "".join(b.get("text", "") for b in data["content"]).strip()
+        print(f"Raw text ({len(raw)} chars):\n{raw}")
+
+        # Strip any accidental markdown fences
         raw = raw.replace("```json", "").replace("```", "").strip()
-        print(f"Raw response ({len(raw)} chars):\n{raw}\n")  # debug
-        return json.loads(raw)["questions"]
-        resp.raise_for_status()
-        data = resp.json()
-        raw = "".join(b.get("text", "") for b in data["content"]).strip()
-        raw = raw.replace("```json", "").replace("```", "").strip()
+
         return json.loads(raw)["questions"]
 
 
-# ── Send via Telegram ─────────────────────────────────────────────────────────
-async def send_telegram(text: str, parse_mode: str = "HTML") -> None:
+async def send_telegram(text: str) -> None:
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(url, json={
             "chat_id": TELEGRAM_CHAT_ID,
             "text": text,
-            "parse_mode": parse_mode,
-            "disable_web_page_preview": True,
+            "parse_mode": "HTML",
         })
         resp.raise_for_status()
 
 
-async def send_poll(question: str, options: list[str], correct_idx: int, explanation: str) -> None:
-    """Send question as a Telegram Quiz poll (auto-grades, shows explanation on answer)."""
+async def send_poll(q: dict, num: int) -> None:
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPoll"
-    # Telegram poll options max 100 chars each — truncate if needed
-    clean_options = [o[3:].strip() if o[1] == "." else o for o in options]  # strip "A. " prefix
-    clean_options = [o[:100] for o in clean_options]
+    options = [o[3:].strip() if len(o) > 2 and o[1] == "." else o for o in q["options"]]
+    options = [o[:100] for o in options]
+    explanation = q["explanation"][:200]
+    question_text = f"Q{num}: {q['question']}"[:300]
+
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(url, json={
             "chat_id": TELEGRAM_CHAT_ID,
-            "question": question[:300],  # Telegram max 300 chars for poll question
-            "options": clean_options,
+            "question": question_text,
+            "options": options,
             "type": "quiz",
-            "correct_option_id": correct_idx,
-            "explanation": explanation[:200],  # Telegram max 200 chars
+            "correct_option_id": q["correct"],
+            "explanation": explanation,
             "is_anonymous": False,
-            "open_period": 86400,  # Poll open for 24 hours
+            "open_period": 86400,
         })
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            print(f"Poll failed: {resp.text} — sending as text instead")
+            opts = "\n".join(q["options"])
+            await send_telegram(
+                f"<b>Q{num}:</b> {q['question']}\n\n{opts}\n\n"
+                f"<tg-spoiler>✅ {q['options'][q['correct']]}\n{q['explanation']}</tg-spoiler>"
+            )
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 async def main():
-    # Pick a random topic for today
     topic = random.choice(TOPICS)
+    print(f"Topic: {topic}")
 
-    print(f"Generating questions on: {topic}")
     questions = await generate_questions(topic)
     print(f"Got {len(questions)} questions")
 
-    # Send header message
     await send_telegram(
         f"🩺 <b>Daily Vascular Surgery Questions</b>\n\n"
-        f"📚 Today's topic: <i>{topic}</i>\n\n"
-        f"3 hard questions — answer each poll below. "
-        f"Good luck! 💪"
+        f"📚 <i>{topic}</i>\n\n"
+        f"3 hard questions below 👇"
     )
     await asyncio.sleep(1)
 
-    # Send each question as a Telegram Quiz poll
-    for i, q in enumerate(questions[:5], 1):
-        print(f"Sending question {i}...")
-        try:
-            await send_poll(
-                question=f"Q{i}: {q['question']}",
-                options=q["options"],
-                correct_idx=q["correct"],
-                explanation=q["explanation"][:200],
-            )
-        except Exception as e:
-            # Fallback: if poll fails (e.g. question too long), send as text
-            print(f"Poll failed for Q{i}: {e} — falling back to text")
-            opts = "\n".join(q["options"])
-            await send_telegram(
-                f"<b>Q{i}:</b> {q['question']}\n\n{opts}\n\n"
-                f"<tg-spoiler>✅ Answer: {q['options'][q['correct']]}\n\n{q['explanation']}</tg-spoiler>"
-            )
-        await asyncio.sleep(1.5)  # Avoid Telegram rate limits
+    for i, q in enumerate(questions[:3], 1):
+        print(f"Sending Q{i}...")
+        await send_poll(q, i)
+        await asyncio.sleep(1.5)
 
-    # Send closing message
-    await send_telegram(
-        "✅ <b>That's all for today!</b>\n\n"
-        "Open the study app for more practice:\n"
-        "Keep it up — consistency beats cramming. 🎯"
-    )
-    print("Done!")
+    await send_telegram("✅ <b>Done for today!</b> Keep it up 💪")
+    print("All done.")
 
 
 if __name__ == "__main__":
