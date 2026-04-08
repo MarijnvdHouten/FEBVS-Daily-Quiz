@@ -80,11 +80,11 @@ async def send_telegram(text: str) -> None:
         resp.raise_for_status()
 
 
-async def send_poll(q: dict, num: int) -> None:
+async def send_question(q: dict, num: int) -> None:
+    """Send poll immediately followed by a separate spoiler message with the explanation."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPoll"
     options = [o[3:].strip() if len(o) > 2 and o[1] == "." else o for o in q["options"]]
     options = [o[:100] for o in options]
-    explanation = q["explanation"][:400]
     question_text = f"Q{num}: {q['question']}"[:300]
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -94,17 +94,17 @@ async def send_poll(q: dict, num: int) -> None:
             "options": options,
             "type": "quiz",
             "correct_option_id": q["correct"],
-            "explanation": explanation,
             "is_anonymous": False,
-            # no open_period = poll stays open indefinitely
+            # no explanation here — sent separately below
         })
         if resp.status_code != 200:
-            print(f"Poll failed: {resp.text} — sending as text instead")
-            opts = "\n".join(q["options"])
-            await send_telegram(
-                f"<b>Q{num}:</b> {q['question']}\n\n{opts}\n\n"
-                f"<tg-spoiler>✅ {q['options'][q['correct']]}\n{q['explanation']}</tg-spoiler>"
-            )
+            print(f"Poll failed: {resp.text}")
+
+    # Send explanation as a separate spoiler message — tap to reveal, no waiting
+    correct_label = q["options"][q["correct"]]
+    await send_telegram(
+        f"💡 <b>Answer Q{num}:</b> <tg-spoiler>✅ {correct_label}\n\n{q['explanation']}</tg-spoiler>"
+    )
 
 
 async def main():
@@ -117,13 +117,13 @@ async def main():
     await send_telegram(
         f"🩺 <b>Daily Vascular Surgery Questions</b>\n\n"
         f"📚 <i>{topic}</i>\n\n"
-        f"3 hard questions below 👇"
+        f"3 hard questions below. Answer the poll, then tap 💡 to reveal the explanation 👇"
     )
     await asyncio.sleep(1)
 
     for i, q in enumerate(questions[:3], 1):
         print(f"Sending Q{i}...")
-        await send_poll(q, i)
+        await send_question(q, i)
         await asyncio.sleep(1.5)
 
     await send_telegram("✅ <b>Done for today!</b> Keep it up 💪")
